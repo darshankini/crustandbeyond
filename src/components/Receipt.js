@@ -1,4 +1,5 @@
-import { money, lineTotal } from './Layout';
+import { Fragment } from 'react';
+import { money, itemTotal } from './Layout';
 import { SHOP } from '../printer/escpos';
 
 // Hidden on screen; shown only when printing (see .receipt-print in index.css).
@@ -28,10 +29,17 @@ export default function Receipt({ order, items, customer }) {
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <tbody>
           {items.map((i) => (
-            <tr key={i.id}>
-              <td>{i.name} {i.grams}g</td>
-              <td style={{ textAlign: 'right' }}>{money(lineTotal(i.price, i.grams))}</td>
-            </tr>
+            <Fragment key={i.key || i.id}>
+              <tr>
+                <td>{i.qty} x {i.name}</td>
+                <td style={{ textAlign: 'right' }}>{money(itemTotal(i))}</td>
+              </tr>
+              {(i.subitems || []).map((s) => (
+                <tr key={s.id}>
+                  <td colSpan={2}>&nbsp;&nbsp;+ {s.name}{Number(s.price) > 0 ? ` (${money(s.price)})` : ''}</td>
+                </tr>
+              ))}
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -41,7 +49,7 @@ export default function Receipt({ order, items, customer }) {
           <tr>
             <td><strong>TOTAL</strong></td>
             <td style={{ textAlign: 'right' }}>
-              <strong>{money(items.reduce((s, i) => s + lineTotal(i.price, i.grams), 0))}</strong>
+              <strong>{money(items.reduce((s, i) => s + itemTotal(i), 0))}</strong>
             </td>
           </tr>
         </tbody>

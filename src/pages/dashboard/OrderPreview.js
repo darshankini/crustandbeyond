@@ -79,7 +79,7 @@ const OrderPreview = ({orderDetails,onClose}) => {
                             </th>
 
                             <th className="px-4 py-3 text-center font-semibold">
-                                Weight
+                                Qty
                             </th>
 
                             <th className="px-4 py-3 text-right font-semibold">
@@ -96,11 +96,20 @@ const OrderPreview = ({orderDetails,onClose}) => {
                             >
                                 <td className="px-4 py-3 font-medium text-gray-800">
                                     {p.name}
+                                    {p.subitems?.length > 0 && (
+                                        <ul className="mt-0.5 text-xs font-normal text-gray-500">
+                                            {p.subitems.map((s) => (
+                                                <li key={s.id}>
+                                                    + {s.name}{Number(s.price) > 0 && ` (${money(s.price)})`}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
                                 </td>
 
                                 <td className="px-4 py-3 text-center text-gray-600">
                                     <span className="inline-flex min-w-8 items-center justify-center rounded-full bg-gray-100 px-2 py-1 font-medium">
-                                        {p.grams} g
+                                        {p.qty}
                                     </span>
                                 </td>
 

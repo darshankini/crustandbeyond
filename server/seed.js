@@ -2,7 +2,7 @@
 const bcrypt = require('bcryptjs');
 const pool = require('./db');
 
-// [category, name, price per kg]. Images are left empty; upload real photos from the dashboard.
+// [category, name, unit price]. Images are left empty; upload real photos from the dashboard.
 const SAMPLE_PRODUCTS = [
   ['Whole Spices',  'Black Pepper',           900],
   ['Whole Spices',  'Green Cardamom',        3200],

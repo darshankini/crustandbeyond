@@ -84,7 +84,7 @@ export default function OrderAdmin({isOrderPreview}) {
     
      {/* Pagination */}
     {totalPages > 1 && (
-        <div className='mt-4 flex items-center justify-between border-t pt-4'>
+        <div className='mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4'>
             <p className='text-sm text-gray-500'>
                 Showing{' '}
                 <span className='font-medium text-gray-700'>

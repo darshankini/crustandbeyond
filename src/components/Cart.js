@@ -4,20 +4,41 @@ import { api } from '../api';
 import { money } from './Layout';
 import CartItem from './CartItem';
 import Receipt from './Receipt';
+import KotTicket from './KotTicket';
 import CustomerModal from './CustomerModal';
 import toast from 'react-hot-toast';
 import { status as printerStatus, printBytes } from '../printer/printer';
-import { buildReceipt } from '../printer/escpos';
+import { buildReceipt, buildKot } from '../printer/escpos';
 
-export default function Cart({ onClose }) {
+export default function Cart({ onClose, onEditOptions }) {
   const {
-    items, inc, dec, setGrams, remove, clear, total, count,
+    items, inc, dec, setQty, remove, clear, total, count,
     sessions, activeId, addSession, selectSession, clearSessions, clearCurrentSession
   } = useCart();
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState(null); // { order, items, total } awaiting customer modal
-  const [printData, setPrintData] = useState(null); // { order, items, customer } snapshot for receipt
+  // What the browser print dialog shows: { type: 'bill', order, items, customer } or { type: 'kot', label, items }.
+  const [printData, setPrintData] = useState(null);
+  const cartLabel = sessions.find((s) => s.id === activeId)?.label;
+
+  // Print a Kitchen Order Ticket for the current cart. Doesn't check out or clear the cart,
+  // so it can be sent to the kitchen before the customer pays.
+  const printKot = useCallback(async () => {
+    if (!items.length) return;
+    const job = { label: cartLabel, items: items.slice() };
+    if (printerStatus().connected) {
+      try {
+        await printBytes(buildKot(job));
+        toast.success('KOT sent to printer');
+        return;
+      } catch (e) {
+        toast.error('Printer failed (' + e.message + '). Opening print dialog instead.');
+      }
+    }
+    setPrintData({ type: 'kot', ...job });
+    setTimeout(() => window.print(), 50);
+  }, [items, cartLabel]);
 
   // Clearing every cart is destructive, so confirm when there's anything to lose.
   const handleClearSessions = useCallback(() => {
@@ -38,7 +59,7 @@ export default function Cart({ onClose }) {
     setBusy(true);
     try {
       const order = await api.post('/orders', {
-        items: items.map(({ id, name, price, grams }) => ({ id, name, price, grams })),
+        items: items.map(({ id, name, price, qty, subitems }) => ({ id, name, price, qty, subitems: subitems || [] })),
       });
       setPending({ order, items: items.slice(), total });
     } catch (e) {
@@ -48,12 +69,12 @@ export default function Cart({ onClose }) {
     }
   }, [items, busy, total]);
 
-  // Print the pending order (optionally with customer details), then clear the cart.
+  // Print the customer bill for the pending order (optionally with customer details), then clear the cart.
   // Goes straight to the connected thermal printer; otherwise (or if that fails) the browser print dialog.
   const finishAndPrint = useCallback(
     async (customer) => {
       const { order, items: snapshot } = pending;
-      setPrintData({ order, items: snapshot, customer });
+      setPrintData({ type: 'bill', order, items: snapshot, customer });
       setPending(null);
       if (printerStatus().connected) {
         try {
@@ -167,7 +188,7 @@ export default function Cart({ onClose }) {
           {onClose && (
             <button
               onClick={onClose}
-              className="md:hidden text-gray-500 hover:text-gray-800 text-xl leading-none"
+              className="lg:hidden -mr-2 p-2 text-gray-500 hover:text-gray-800 text-xl leading-none"
               aria-label="Close cart"
             >
               ✕
@@ -185,7 +206,7 @@ export default function Cart({ onClose }) {
         ) : (
           <ul className="divide-y">
             {items.map((i) => (
-              <CartItem key={i.id} item={i} onInc={inc} onDec={dec} onSetGrams={setGrams} onRemove={remove}/>
+              <CartItem key={i.key} item={i} onInc={inc} onDec={dec} onSetQty={setQty} onRemove={remove} onEditOptions={onEditOptions}/>
             ))}
           </ul>
         )}
@@ -206,11 +227,19 @@ export default function Cart({ onClose }) {
             Clear
           </button>
           <button
+            onClick={printKot}
+            disabled={!items.length}
+            title="Print kitchen ticket (no prices). Doesn't check out."
+            className="py-2.5 rounded-md border-2 border-brand text-brand hover:bg-brand/10 text-sm sm:text-base font-semibold disabled:opacity-40"
+          >
+            Print KOT
+          </button>
+          <button
             onClick={checkout}
             disabled={!items.length || busy}
-            className="col-span-2 py-2 rounded-md bg-brand hover:bg-brand-dark text-white font-semibold disabled:opacity-40"
+            className="py-2.5 rounded-md bg-brand hover:bg-brand-dark text-white text-sm sm:text-base font-semibold leading-tight disabled:opacity-40"
           >
-            {busy ? 'Saving…' : 'Checkout & Print'}
+            {busy ? 'Saving…' : 'Checkout & Print Bill'}
           </button>
         </div>
       </div>
@@ -227,9 +256,10 @@ export default function Cart({ onClose }) {
       )}
 
       {/* Rendered off-screen; visible only during print */}
-      {printData && (
+      {printData?.type === 'bill' && (
         <Receipt order={printData.order} items={printData.items} customer={printData.customer} />
       )}
+      {printData?.type === 'kot' && <KotTicket label={printData.label} items={printData.items} />}
     </section>
   );
 }

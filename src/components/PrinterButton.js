@@ -41,7 +41,7 @@ export default function PrinterButton() {
   const testPrint = () =>
     printBytes(buildReceipt({
       order: { id: 'TEST', created_at: Date.now() },
-      items: [{ id: 0, name: 'Printer test', price: 1000, grams: 100 }],
+      items: [{ id: 0, name: 'Printer test', price: 100, qty: 1 }],
     }));
 
   const item = 'block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100';

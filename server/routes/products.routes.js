@@ -27,9 +27,10 @@ const upload = multer({
     /^image\//.test(file.mimetype) ? cb(null, true) : cb(new Error('Only image files are allowed')),
 });
 
-// Public list with optional ?category=<id> filter (used by the POS screen).
+// Public list with optional ?category=<id> and ?search=<text> filters (used by the POS screen).
 router.get('/', async (req, res) => {
   const { category } = req.query;
+  const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 100) : '';
 
   const params = [];
 
@@ -40,7 +41,9 @@ router.get('/', async (req, res) => {
       p.price,
       p.image,
       p.category_id,
-      c.name AS category
+      c.name AS category,
+      (SELECT GROUP_CONCAT(g.group_name ORDER BY g.group_name SEPARATOR '|')
+         FROM product_subitem_groups g WHERE g.product_id = p.id) AS subitem_groups
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
     WHERE p.is_active = 1
@@ -51,12 +54,34 @@ router.get('/', async (req, res) => {
     params.push(category);
   }
 
+  if (search) {
+    // Match anywhere in the name; escape LIKE wildcards so "%" or "_" are searched literally.
+    sql += " AND p.name LIKE ? ESCAPE '\\\\'";
+    params.push(`%${search.replace(/[\\%_]/g, '\\$&')}%`);
+  }
+
   sql += ' ORDER BY p.name';
 
   const result = await pool.query(sql, params);
 
-  res.json(result[0]);
+  res.json(result[0].map((p) => ({
+    ...p,
+    subitem_groups: p.subitem_groups ? p.subitem_groups.split('|') : [],
+  })));
 });
+
+// Replace the sub-item groups a product offers.
+async function setSubitemGroups(productId, groups) {
+  const list = [...new Set((Array.isArray(groups) ? groups : []).filter(Boolean).map(String))];
+  await pool.query('DELETE FROM product_subitem_groups WHERE product_id = ?', [productId]);
+  if (list.length) {
+    await pool.query(
+      'INSERT INTO product_subitem_groups (product_id, group_name) VALUES ?',
+      [list.map((g) => [productId, g])]
+    );
+  }
+  return list;
+}
 
 // CRUD below requires auth.
 router.use(requireAuth);
@@ -70,7 +95,7 @@ router.post('/upload', upload.single('image'), (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { name, price, category_id, image } = req.body || {};
+  const { name, price, category_id, image, subitem_groups } = req.body || {};
 
   if (!name || price == null) {
     return res.status(400).json({
@@ -90,19 +115,20 @@ router.post('/', async (req, res) => {
     ]
   );
 
-  
+  const groups = await setSubitemGroups(result[0].insertId, subitem_groups);
 
   res.status(201).json({
     id: result[0].insertId,
     name,
     price,
     category_id: category_id || null,
-    image: image || null
+    image: image || null,
+    subitem_groups: groups
   });
 });
 
 router.put('/:id', async (req, res) => {
-  const { name, price, category_id, image } = req.body || {};
+  const { name, price, category_id, image, subitem_groups } = req.body || {};
 
   await pool.query(
     `UPDATE products
@@ -120,12 +146,15 @@ router.put('/:id', async (req, res) => {
     ]
   );
 
+  const groups = await setSubitemGroups(req.params.id, subitem_groups);
+
   res.json({
     id: Number(req.params.id),
     name,
     price,
     category_id: category_id || null,
-    image: image || null
+    image: image || null,
+    subitem_groups: groups
   });
 });
 

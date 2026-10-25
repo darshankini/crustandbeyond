@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { money, DEFAULT_GRAMS } from './Layout';
+import { money } from './Layout';
 
 const FALLBACK =
   'data:image/svg+xml;utf8,' +
@@ -8,7 +8,10 @@ const FALLBACK =
   );
 
 // One product tile. memo'd so the grid doesn't re-render tiles that didn't change.
-function ProductCard({ product, grams, onAdd, onDec, onInc }) {
+function ProductCard({ product, qty, onAdd, onDec, onInc }) {
+  // Products with sub-items always open the picker; the cart merges lines with the same choices.
+  const hasOptions = product.subitem_groups?.length > 0;
+  const key = String(product.id);
   return (
     <div
       className="group flex flex-col rounded-lg border bg-white overflow-hidden text-left hover:shadow-md hover:border-brand transition"
@@ -23,17 +26,19 @@ function ProductCard({ product, grams, onAdd, onDec, onInc }) {
       <div className="p-2">
         <div className="text-sm font-medium leading-tight line-clamp-2 min-h-[2.5rem]">{product.name}</div>
         <div className="mt-1 text-brand font-semibold whitespace-nowrap">
-          {money(product.price)}<span className="text-xs font-normal text-gray-500">/kg</span>
+          {money(product.price)}
         </div>
-        <div className="mt-1.5 h-7 flex items-center">
-          {grams > 0 ? (
+        <div className="mt-1.5 h-9 flex items-center">
+          {hasOptions ? (
+            <button onClick={() => onAdd(product)} className="w-full h-9 text-sm text-white bg-brand rounded-full font-semibold px-3 hover:bg-brand-dark">+ Choose options</button>
+          ) : qty > 0 ? (
             <div className="w-full flex items-center justify-between text-white">
-              <button onClick={() => onDec(product.id)} className="h-7 w-7 rounded bg-brand hover:bg-brand-dark leading-none">−</button>
-              <span className="text-center text-sm tabular-nums text-black whitespace-nowrap">{grams} g</span>
-              <button onClick={() => onInc(product.id)} className="h-7 w-7 rounded bg-brand hover:bg-brand-dark leading-none">+</button>
+              <button onClick={() => onDec(key)} className="h-9 w-9 rounded bg-brand hover:bg-brand-dark leading-none">−</button>
+              <span className="text-center text-sm tabular-nums text-black whitespace-nowrap">{qty}</span>
+              <button onClick={() => onInc(key)} className="h-9 w-9 rounded bg-brand hover:bg-brand-dark leading-none">+</button>
             </div>
           ) : (
-            <button onClick={() => onAdd(product)} className="w-full h-7 text-xs text-white bg-brand rounded-full font-semibold px-3 hover:bg-brand-dark">+ Add {DEFAULT_GRAMS} g</button>
+            <button onClick={() => onAdd(product)} className="w-full h-9 text-sm text-white bg-brand rounded-full font-semibold px-3 hover:bg-brand-dark">+ Add</button>
           )}
         </div>
       </div>

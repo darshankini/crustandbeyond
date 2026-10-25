@@ -3,24 +3,29 @@ import { api } from '../../api';
 import { money } from '../../components/Layout';
 import toast from "react-hot-toast";
 
-const EMPTY = { name: '', price: '', category_id: '', image: '' };
+const EMPTY = { name: '', price: '', category_id: '', image: '', subitem_groups: [] };
 
 export default function ProductsAdmin() {
   const [rows, setRows] = useState([]);
   const [cats, setCats] = useState([]);
+  const [groups, setGroups] = useState([]); // sub-item group names, e.g. 'Choice of Bread'
   const [form, setForm] = useState(EMPTY);
   const [editingId, setEditingId] = useState(null);
   const [uploading, setUploading] = useState(false);
 
   const load = useCallback(() => {
-    Promise.all([api.get('/products'), api.get('/categories')])
-      .then(([p, c]) => { setRows(p); setCats(c); })
+    Promise.all([api.get('/products'), api.get('/categories'), api.get('/subitems')])
+      .then(([p, c, s]) => { setRows(p); setCats(c); setGroups([...new Set(s.map((x) => x.group_name))]); })
       .catch((e) => alert(e.message));
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const reset = () => { setForm(EMPTY); setEditingId(null); };
+  const toggleGroup = (g) => setForm((f) => ({
+    ...f,
+    subitem_groups: f.subitem_groups.includes(g) ? f.subitem_groups.filter((x) => x !== g) : [...f.subitem_groups, g],
+  }));
 
   // Upload the chosen file, then keep the returned URL on the form (image stays optional).
   const onPickImage = async (e) => {
@@ -49,6 +54,7 @@ export default function ProductsAdmin() {
       price: Number(form.price),
       category_id: form.category_id ? Number(form.category_id) : null,
       image: form.image || null,
+      subitem_groups: form.subitem_groups,
     };
     try {
       if (editingId){
@@ -68,7 +74,7 @@ export default function ProductsAdmin() {
 
   const edit = (p) => {
     setEditingId(p.id);
-    setForm({ name: p.name, price: p.price, category_id: p.category_id || '', image: p.image || '' });
+    setForm({ name: p.name, price: p.price, category_id: p.category_id || '', image: p.image || '', subitem_groups: p.subitem_groups || [] });
   };
 
   const del = async (id) => {
@@ -83,7 +89,7 @@ export default function ProductsAdmin() {
       <h3 className="font-semibold mb-3">Products</h3>
       <form onSubmit={save} className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
         <input className={input} placeholder="Name" value={form.name} onChange={set('name')} required />
-        <input className={input} placeholder="Price per kg" type="number" step="0.01" min="0" value={form.price} onChange={set('price')} required />
+        <input className={input} placeholder="Price" type="number" step="0.01" min="0" value={form.price} onChange={set('price')} required />
         <select className={input} value={form.category_id} onChange={set('category_id')}>
           <option value="">No category</option>
           {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -118,12 +124,23 @@ export default function ProductsAdmin() {
           <button disabled={uploading} className="flex-1 px-3 py-1.5 rounded-md bg-brand text-white text-sm disabled:opacity-50">{editingId ? 'Update' : 'Add'}</button>
           {editingId && <button type="button" onClick={reset} className="px-3 py-1.5 rounded-md bg-gray-200 text-sm">Cancel</button>}
         </div>
+        {groups.length > 0 && (
+          <div className="col-span-2 md:col-span-5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <span className="text-gray-500">Sub-items offered:</span>
+            {groups.map((g) => (
+              <label key={g} className="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked={form.subitem_groups.includes(g)} onChange={() => toggleGroup(g)} className="accent-brand" />
+                {g}
+              </label>
+            ))}
+          </div>
+        )}
       </form>
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-left text-gray-500 border-b">
-            <tr><th className="px-3 py-2 text-center">Image</th><th className="px-3 py-2 text-center">Item</th><th className="px-3 text-center">Category</th><th className="px-3 text-center">Price / kg</th><th className='px-3 text-center'>Action</th></tr>
+            <tr><th className="px-3 py-2 text-center">Image</th><th className="px-3 py-2 text-center">Item</th><th className="px-3 text-center">Category</th><th className="px-3 text-center">Price</th><th className="px-3 text-center">Sub-items</th><th className='px-3 text-center'>Action</th></tr>
           </thead>
           <tbody className="divide-y">
             {rows.map((p) => (
@@ -135,6 +152,7 @@ export default function ProductsAdmin() {
                 <td className="px-3 text-center">{p.name}</td>
                 <td className="px-3 text-center text-gray-500">{p.category || '—'}</td>
                 <td className="px-3 text-center tabular-nums">{money(p.price)}</td>
+                <td className="px-3 text-center text-xs text-gray-500">{p.subitem_groups?.length ? p.subitem_groups.join(', ') : '—'}</td>
                 <td className="px-3 text-center whitespace-nowrap">
                   <button onClick={() => edit(p)} className="text-center hover:underline mr-3 rounded-md text-white bg-orange-600 hover:bg-orange-500 p-1">Edit</button>
                   <button onClick={() => del(p.id)} className="text-center hover:underline rounded-md text-white bg-red-600 hover:bg-red-500 p-1">Delete</button>

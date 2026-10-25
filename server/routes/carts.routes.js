@@ -1,17 +1,26 @@
 const router = require('express').Router();
 const db = require('../db');
-const { lineTotal } = require('../pricing');
+const { itemTotal } = require('../pricing');
+
+// Keep only the fields we store for a chosen sub-item.
+const cleanSubitems = (list) =>
+  (Array.isArray(list) ? list : []).map((x) => ({
+    id: Number(x.id),
+    group_name: String(x.group_name || ''),
+    name: String(x.name || ''),
+    price: Number(x.price) || 0,
+  }));
 
 // GET /api/carts
 // Returns all open carts with display-ready items (name/image joined from products):
-// [ { cart_id, items: [{ id, name, price, image, grams }] } ]
+// [ { cart_id, items: [{ id, name, price, image, qty, subitems }] } ]
 router.get('/', async (_req, res) => {
   const [carts] = await db.query('SELECT id, cart_id FROM cart ORDER BY id');
   if (!carts.length) return res.json([]);
 
   const ids = carts.map((c) => c.id);
   const [items] = await db.query(
-    `SELECT ci.cart_id AS cref, ci.product_id AS id, p.name, ci.price, p.image, ci.grams
+    `SELECT ci.cart_id AS cref, ci.product_id AS id, p.name, ci.price, p.image, ci.qty, ci.subitems
      FROM cart_items ci
      JOIN products p ON p.id = ci.product_id
      WHERE ci.cart_id IN (?)
@@ -26,7 +35,8 @@ router.get('/', async (_req, res) => {
       name: it.name,
       price: Number(it.price),
       image: it.image,
-      grams: it.grams,
+      qty: it.qty,
+      subitems: it.subitems ? JSON.parse(it.subitems) : [],
     });
   }
 
@@ -34,7 +44,7 @@ router.get('/', async (_req, res) => {
 });
 
 // PUT /api/carts
-// Full-state sync. Body: { carts: [{ cart_id, items: [{ id, price, grams }] }] }.
+// Full-state sync. Body: { carts: [{ cart_id, items: [{ id, price, qty, subitems }] }] }.
 // Replaces every stored cart in one transaction so the DB always mirrors the client.
 router.put('/', async (req, res) => {
   const carts = Array.isArray(req.body?.carts) ? req.body.carts : [];
@@ -48,7 +58,7 @@ router.put('/', async (req, res) => {
 
     for (const c of carts) {
       const list = Array.isArray(c.items) ? c.items : [];
-      const total = list.reduce((s, i) => s + lineTotal(i.price, i.grams), 0);
+      const total = list.reduce((s, i) => s + itemTotal({ ...i, subitems: cleanSubitems(i.subitems) }), 0);
       const itemCount = list.length;
 
       const [r] = await conn.query(
@@ -59,9 +69,10 @@ router.put('/', async (req, res) => {
 
 
       for (const it of list) {
+        const subs = cleanSubitems(it.subitems);
         await conn.query(
-          'INSERT INTO cart_items (cart_id, product_id, price, grams) VALUES (?, ?, ?, ?)',
-          [cid, Number(it.id), Number(it.price), Number(it.grams)]
+          'INSERT INTO cart_items (cart_id, product_id, price, qty, subitems) VALUES (?, ?, ?, ?, ?)',
+          [cid, Number(it.id), Number(it.price), Number(it.qty), subs.length ? JSON.stringify(subs) : null]
         );
       }
     }

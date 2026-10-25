@@ -1,9 +1,10 @@
 const router = require('express').Router();
 const db = require('../db');
-const { lineTotal } = require('../pricing');
+const { itemTotal } = require('../pricing');
 
 // POST /api/orders
-// { items: [{ id, name, price, grams }] } — price is per kg, grams is the weight sold.
+// { items: [{ id, name, price, qty, subitems? }] } — price is per unit, qty is the quantity sold,
+// subitems are [{ id, group_name, name, price }] added to the unit price.
 // Creates an order + its line items inside a transaction.
 router.post('/', async (req, res) => {
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -14,15 +15,15 @@ router.post('/', async (req, res) => {
     });
   }
 
-  if (items.some((item) => !Number.isInteger(Number(item.grams)) || Number(item.grams) <= 0)) {
+  if (items.some((item) => !Number.isInteger(Number(item.qty)) || Number(item.qty) <= 0)) {
     return res.status(400).json({
-      error: 'grams must be a positive whole number'
+      error: 'qty must be a positive whole number'
     });
   }
 
   const total = items.reduce(
     (sum, item) =>
-      sum + lineTotal(item.price, item.grams),
+      sum + itemTotal(item),
     0
   );
 
@@ -44,22 +45,32 @@ router.post('/', async (req, res) => {
       [orderResult.insertId]
     );
 
-    // Create order items (mysql2 expands a nested array into multiple VALUES tuples)
-    const rows = items.map((item) => [
-      order.id,
-      item.id || null,
-      item.name,
-      Number(item.price),
-      Number(item.grams),
-      lineTotal(item.price, item.grams)
-    ]);
+    // Create order items one by one so each line's sub-items can point at its id.
+    for (const item of items) {
+      const [itemResult] = await conn.query(
+        `INSERT INTO order_items
+         (order_id, product_id, name, price, qty, amount)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          order.id,
+          item.id || null,
+          item.name,
+          Number(item.price),
+          Number(item.qty),
+          itemTotal(item)
+        ]
+      );
 
-    await conn.query(
-      `INSERT INTO order_items
-       (order_id, product_id, name, price, grams, amount)
-       VALUES ?`,
-      [rows]
-    );
+      const subs = Array.isArray(item.subitems) ? item.subitems : [];
+      if (subs.length) {
+        await conn.query(
+          `INSERT INTO order_item_subitems
+           (order_item_id, subitem_id, group_name, name, price)
+           VALUES ?`,
+          [subs.map((x) => [itemResult.insertId, x.id || null, x.group_name || '', x.name, Number(x.price) || 0])]
+        );
+      }
+    }
 
     await conn.commit();
 
@@ -164,6 +175,10 @@ router.get('/getOrderDetails/:id',async(req,res) =>{
     if(!orderDetails.length) return res.status(200).json({message : 'No record found'});
 
     const [items] = await db.query('SELECT * FROM order_items WHERE order_id = ?',[orderId]);
+    const [subs] = items.length
+      ? await db.query('SELECT * FROM order_item_subitems WHERE order_item_id IN (?) ORDER BY id',[items.map((i) => i.id)])
+      : [[]];
+    for (const i of items) i.subitems = subs.filter((x) => x.order_item_id === i.id);
     const [customer] = await db.query('SELECT * FROM customers WHERE order_id = ?',[orderId]);
     return res.status(200).json({order:orderDetails[0],items:items,customer:customer[0]});
 

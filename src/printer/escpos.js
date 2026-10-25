@@ -1,10 +1,10 @@
 // Builds a 58mm receipt as raw ESC/POS bytes for a thermal printer.
 // 58mm printers fit 32 characters per line in the default font.
-import { lineTotal } from '../components/Layout';
+import { itemTotal, unitTotal } from '../components/Layout';
 
 export const SHOP = {
-  name: 'RESTRO POS',
-  tagline: 'Small Restaurant',
+  name: 'Crust & Beyond',
+  tagline: '',
 };
 
 const WIDTH = 32;
@@ -43,7 +43,7 @@ export function buildReceipt({ order, items, customer }) {
   const raw = (bytes) => out.push(...bytes);
   const line = (s = '') => out.push(...ascii(s).split('').map((c) => c.charCodeAt(0)), 0x0a);
 
-  const total = items.reduce((s, i) => s + lineTotal(i.price, i.grams), 0);
+  const total = items.reduce((s, i) => s + itemTotal(i), 0);
   const when = new Date(order?.created_at || Date.now()).toLocaleString();
 
   raw(CMD.init);
@@ -65,7 +65,10 @@ export function buildReceipt({ order, items, customer }) {
   line(RULE);
   for (const i of items) {
     line(i.name);
-    row(`  ${i.grams}g x ${amt(i.price)}/kg`, amt(lineTotal(i.price, i.grams))).forEach((l) => line(l));
+    for (const s of i.subitems || []) {
+      line(`  + ${s.name}${Number(s.price) > 0 ? ` (${amt(s.price)})` : ''}`);
+    }
+    row(`  ${i.qty} x ${amt(unitTotal(i))}`, amt(itemTotal(i))).forEach((l) => line(l));
   }
   line(RULE);
   raw(CMD.boldOn);
@@ -74,6 +77,32 @@ export function buildReceipt({ order, items, customer }) {
   line(RULE);
   raw(CMD.alignCenter);
   line('Thank you! Visit again');
+  raw(CMD.feed(4));
+  raw(CMD.cut);
+
+  return new Uint8Array(out);
+}
+
+// Kitchen Order Ticket: what to make, no prices. Printed on its own from an open cart
+// (before checkout), so it's identified by the cart label rather than an order number.
+export function buildKot({ label, items }) {
+  const out = [];
+  const raw = (bytes) => out.push(...bytes);
+  const line = (s = '') => out.push(...ascii(s).split('').map((c) => c.charCodeAt(0)), 0x0a);
+
+  raw(CMD.init);
+  raw(CMD.alignCenter);
+  raw(CMD.doubleOn); line('KOT'); raw(CMD.doubleOff);
+  raw(CMD.alignLeft);
+  line(RULE);
+  if (label) line(label);
+  line(new Date().toLocaleString());
+  line(RULE);
+  for (const i of items) {
+    raw(CMD.boldOn); line(`${i.qty} x ${i.name}`); raw(CMD.boldOff);
+    for (const s of i.subitems || []) line(`    + ${s.name}`);
+  }
+  line(RULE);
   raw(CMD.feed(4));
   raw(CMD.cut);
 
